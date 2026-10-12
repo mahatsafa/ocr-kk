@@ -1,0 +1,28 @@
+[project]
+name = "ocr-kk"
+version = "0.1.0"
+description = "OCR Kartu Keluarga (RapidOCR/PP-OCR) untuk SIP MENTARI"
+readme = "README.md"
+authors = [
+    { name = "mahatsafa", email = "bimbimgus@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.4",
+    "onnxruntime>=1.31.0",
+    "opencv-python-headless>=5.0.0.93",
+    "pillow>=12.3.0",
+    "pypdfium2>=5.14.0",
+    "rapidocr>=3.10.0",
+]
+
+[project.scripts]
+ocr-kk = "ocr_kk.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "ocr_kk"
+module-root = ""

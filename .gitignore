@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+# data KK tidak boleh masuk repo
+*.jpg
+*.jpeg
+*.png
+*.pdf
+*.json
+!package.json
