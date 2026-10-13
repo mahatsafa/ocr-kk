@@ -78,6 +78,15 @@ class TesDasar(unittest.TestCase):
         self.assertEqual(cari_nik('3579O1O1O18OOOO1'), '3579010101800001')  # huruf O dibaca 0
         self.assertEqual(cari_nik('3579 0101 0180 0001'), '3579010101800001')
         self.assertEqual(cari_nik('357901010180001'), '')  # 15 digit
+        self.assertEqual(cari_nik(',No.3579010101800001'), '3579010101800001')  # titik/koma noda sebelum "No"
+
+    def test_nokk_sah(self):
+        from ocr_kk.baca import nokk_sah
+        self.assertTrue(nokk_sah('3579012707060004', []))
+        self.assertFalse(nokk_sah('3579014707060004', []))  # hari 47: bukan tanggal (KK tanpa +40)
+        self.assertFalse(nokk_sah('3579012713060004', []))  # bulan 13
+        self.assertFalse(nokk_sah('357901270706004', []))  # 15 digit
+        self.assertFalse(nokk_sah('3579012707060004', [{'nik': '3579012707060004'}]))  # sama dengan NIK anggota
 
     def test_kamus(self):
         self.assertEqual(K.baku_pendidikan('SLTAVSEDERAJAT')[0], 'SLTA/Sederajat')

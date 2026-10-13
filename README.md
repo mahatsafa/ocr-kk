@@ -4,11 +4,13 @@ Mesin baca (OCR) Kartu Keluarga untuk **SIP MENTARI**. Menggantikan pembacaan Te
 `sipmentari/lib/ocr/` yang hasilnya sering kosong/salah.
 
 - OCR: [RapidOCR](https://github.com/RapidAI/RapidOCR) (PP-OCRv6 dalam ONNX, cukup CPU, tanpa internet
-  setelah model terunduh). Detektor `small`, pengenal `medium` (paling tepat pada uji banding).
+  setelah model terunduh). Detektor & pengenal `small` (`medium` sedikit lebih tepat tetapi >10 menit/KK di CPU tanpa AVX).
 - Tata letak: halaman ditegakkan (0/90/180/270°) dari letak kata judul & kaki KK, kemiringan diluruskan,
   lalu tabel dibaca per baris anggota dengan NIK sebagai jangkar (lihat `ocr_kk/urai.py`).
 - Bacaan kedua (kotak deteksi lebih lebar) hanya bila ada tanggal lahir yang tidak cocok NIK atau kolom berkamus
   kosong/ragu: tanggal dipakai hanya bila tepat sama dengan tanggal di NIK; kolom berkamus hanya bila yakin.
+- No. KK kosong/tidak sah (16 digit, bagian tanggal DDMMYY sah, bukan NIK anggota): halaman tegak dibaca ulang tanpa
+  pengklasifikasi arah baris, karena cls kadang membalik baris No. KK berkotak-kotak. Dipakai hanya bila hasilnya sah.
 - Nama yang tercetak beberapa kali di satu KK (kepala di atas & di tabel; ayah/ibu anak = nama orang tuanya)
   disamakan ke bacaan terbaik; nama yang turun ke baris kedua sel disambung; NIK yang menempel ke sel sebelah dipecah.
 - Blanko lama ("INDONESIA" sebagai kewarganegaraan), nomor baris salah baca, label salah baca 1-2 huruf,

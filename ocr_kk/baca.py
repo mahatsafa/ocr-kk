@@ -53,6 +53,29 @@ def cocok_nik(a: dict) -> bool:
     return bool(n and len(t) == 10 and (int(t[8:]), int(t[5:7]), int(t[:4]) % 100) == n)
 
 
+def nokk_sah(n: str, anggota: list) -> bool:
+    """No. KK 16 digit dengan bagian tanggal (digit 7-12, DDMMYY) yang sah dan bukan NIK salah satu anggota."""
+    if not (isinstance(n, str) and len(n) == 16 and n.isdigit()):
+        return False
+    return 1 <= int(n[6:8]) <= 31 and 1 <= int(n[8:10]) <= 12 and all(a.get('nik') != n for a in anggota)
+
+
+def perbaiki_nokk(r: dict, img) -> bool:
+    """Bila No. KK kosong/tidak sah: baca ulang halaman tegak tanpa pengklasifikasi arah baris (cls membalik
+    baris No. KK berkotak-kotak pada sebagian blanko). Dipakai hanya bila hasilnya sah."""
+    from .urai import urai_halaman
+
+    kep = r['kepala']
+    if nokk_sah(kep.get('noKK', ''), r['anggota']):
+        return False
+    r2 = urai_halaman(baca_kotak(img, cls=False))
+    n = r2['kepala'].get('noKK', '') if r2 else ''
+    if not nokk_sah(n, r['anggota']):
+        return False
+    kep['noKK'], kep['_skor_noKK'] = n, r2['kepala'].get('_skor_noKK', 0)
+    return True
+
+
 # Kolom berkamus yang boleh diisi dari bacaan kedua bila kosong/ragu di bacaan pertama.
 KAMUS_ISI = ('statusPerkawinan', 'statusHubungan', 'agama', 'pendidikanTerakhir', 'pekerjaan')
 
@@ -120,8 +143,10 @@ def baca_file(data: bytes) -> dict:
             perbaiki_bacaan(r, dipakai)
         nilai = (not r.get('bukanKK'), len(r['anggota']), bool(r['kepala'].get('noKK')))
         if terbaik is None or nilai > terbaik[0]:
-            terbaik = (nilai, i, kotak, derajat, r)
-    _, i, kotak, derajat, r = terbaik
+            terbaik = (nilai, i, kotak, derajat, r, dipakai)
+    _, i, kotak, derajat, r, dipakai = terbaik
+    if r['anggota']:
+        perbaiki_nokk(r, dipakai)
     teks = '\n'.join(k['t'] for k in sorted(kotak, key=lambda k: (round(k['p'][0][1] / 20), k['p'][0][0])))
     return {
         'teks': teks,

@@ -48,7 +48,7 @@ def angka(t):
 
 def cari_nik(t):
     """NIK 16 digit di dalam teks (boleh berspasi / ada salah baca huruf), atau ''."""
-    bersih = re.sub(r'[^0-9A-Z]', '', angka(re.sub(r'(?i)^\s*(nik|no\.?)\s*[:.]?', '', t)))
+    bersih = re.sub(r'[^0-9A-Z]', '', angka(re.sub(r'(?i)^[\s,.;:\'"]*(nik|no\.?)\s*[:.]?', '', t)))
     m = RE_NIK.search(bersih)
     return m.group(1) if m else ''
 

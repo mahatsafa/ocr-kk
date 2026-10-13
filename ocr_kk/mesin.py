@@ -29,10 +29,11 @@ UNCLIP = 1.6  # lebar kotak deteksi bawaan RapidOCR
 UNCLIP_LEBAR = 2.0  # kotak lebih lebar: angka tanggal di tepi kotak tidak terpotong, tetapi kolom nama bisa tergabung
 
 
-def baca_kotak(img: np.ndarray, lebar: bool = False) -> list[dict]:
-    """Daftar kotak teks: {'p': [[x,y]*4], 't': teks, 's': skor}."""
+def baca_kotak(img: np.ndarray, lebar: bool = False, cls: bool = True) -> list[dict]:
+    """Daftar kotak teks: {'p': [[x,y]*4], 't': teks, 's': skor}. cls=False: tanpa pengklasifikasi arah baris
+    (untuk gambar yang sudah tegak; cls kadang membalik baris No. KK berkotak-kotak sehingga tak terbaca)."""
     unclip = UNCLIP_LEBAR if lebar else float(json.loads(os.environ.get('OCR_PARAMS', '{}')).get('Det.unclip_ratio', UNCLIP))
-    r = mesin()(img, unclip_ratio=unclip)
+    r = mesin()(img, unclip_ratio=unclip, use_cls=cls)
     if r.boxes is None:
         return []
     return [
