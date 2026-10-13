@@ -25,9 +25,14 @@ def mesin():
     return _mesin
 
 
-def baca_kotak(img: np.ndarray) -> list[dict]:
+UNCLIP = 1.6  # lebar kotak deteksi bawaan RapidOCR
+UNCLIP_LEBAR = 2.0  # kotak lebih lebar: angka tanggal di tepi kotak tidak terpotong, tetapi kolom nama bisa tergabung
+
+
+def baca_kotak(img: np.ndarray, lebar: bool = False) -> list[dict]:
     """Daftar kotak teks: {'p': [[x,y]*4], 't': teks, 's': skor}."""
-    r = mesin()(img)
+    unclip = UNCLIP_LEBAR if lebar else float(json.loads(os.environ.get('OCR_PARAMS', '{}')).get('Det.unclip_ratio', UNCLIP))
+    r = mesin()(img, unclip_ratio=unclip)
     if r.boxes is None:
         return []
     return [

@@ -25,11 +25,12 @@ ANGGOTA = [
 ]
 
 
-def halaman_kk(miring=0.0, judul_ayah_ibu=True, nomor=True):
+def halaman_kk(miring=0.0, judul_ayah_ibu=True, nomor=True, label_kepala='Nama Kepala Keluarga', warga='WNI',
+               nomor_2='2', nama_terlipat=False):
     m = miring
     k = [kotak('KARTU KELUARGA', 900, 40, h=60),
          kotak('No. 3579010101200001', 880, 110, h=40),
-         kotak('Nama Kepala Keluarga', 100, 170), kotak(': UJI KEPALA', 420, 170),
+         kotak(label_kepala, 100, 170), kotak(': UJI KEPALA', 420, 170),
          kotak('Alamat', 100, 200), kotak(': JL. UJI NO. 1', 420, 200),
          kotak('RT/RW', 100, 230), kotak(': 001/003', 420, 230),
          kotak('Desa/Kelurahan', 1500, 170), kotak(': SISIR', 1750, 170),
@@ -40,8 +41,13 @@ def halaman_kk(miring=0.0, judul_ayah_ibu=True, nomor=True):
     for i, a in enumerate(ANGGOTA):
         y = 340 + 34 * i
         if nomor:
-            k.append(kotak(str(i + 1), 40, y, miring=m))
-        for t, x in zip((a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]), (110, 500, 740, 910, 1100, 1290, 1430, 1700)):
+            k.append(kotak(nomor_2 if i == 1 else str(i + 1), 40, y, miring=m))
+        nama = a[0]
+        if nama_terlipat and i == 2:
+            # nama panjang turun ke baris kedua di dalam sel yang sama
+            nama = 'UJI ANAK BUNGSU'
+            k.append(kotak('SEKALI', 110, y + 26, miring=m))
+        for t, x in zip((nama, a[1], a[2], a[3], a[4], a[5], a[6], a[7]), (110, 500, 740, 910, 1100, 1290, 1430, 1700)):
             k.append(kotak(t, x, y, miring=m))
     kol2 = [('Status Perkawinan', 120), ('Status Hubungan Dalam Keluarga', 400), ('Kewarganegaraan', 760),
             ('No. Paspor', 1000), ('No. KITAP', 1200)]
@@ -55,7 +61,7 @@ def halaman_kk(miring=0.0, judul_ayah_ibu=True, nomor=True):
         y = 810 + 34 * i
         if nomor:
             k.append(kotak(str(i + 1), 40, y, miring=m))
-        for t, x in zip((a[8], a[9], 'WNI', a[10], a[11]), (100, 380, 760, 1400, 1760)):
+        for t, x in zip((a[8], a[9], warga, a[10], a[11]), (100, 380, 760, 1400, 1760)):
             k.append(kotak(t, x, y, miring=m))
     k += [kotak('Dikeluarkan Tanggal', 100, 1050), kotak('KEPALA DINAS KEPENDUDUKAN DAN', 1500, 1050)]
     return k
@@ -108,6 +114,28 @@ class TesHalaman(unittest.TestCase):
 
     def test_tanpa_nomor_baris(self):
         self.cek(susun(urai_halaman(halaman_kk(nomor=False))))
+
+    def test_label_salah_baca(self):
+        self.cek(susun(urai_halaman(halaman_kk(label_kepala='Nama Kepaia Keluarga'))))
+
+    def test_kewarganegaraan_indonesia(self):
+        # blanko lama: "INDONESIA", bukan "WNI"; tidak boleh masuk ke nama ayah
+        self.cek(susun(urai_halaman(halaman_kk(warga='INDONESIA'))))
+
+    def test_nomor_baris_salah_baca(self):
+        # nomor "2" terbaca "3": tidak boleh menggeser baris
+        self.cek(susun(urai_halaman(halaman_kk(nomor_2='3'))))
+
+    def test_nama_terlipat(self):
+        h = susun(urai_halaman(halaman_kk(nama_terlipat=True)))
+        self.assertEqual(h['anggota'][2]['namaLengkap'], 'UJI ANAK BUNGSU SEKALI')
+        self.assertEqual(h['anggota'][1]['namaLengkap'], 'UJI ISTRI')
+
+    def test_formulir_menyebut_kk(self):
+        # daftar usulan JKN: menyebut "foto Kartu Keluarga" dalam kalimat, ada NIK, tetapi bukan KK
+        k = [kotak('DAFTAR USULAN PBI JKN', 100, 40), kotak('3579010101800001', 100, 100), kotak('UJI', 400, 100),
+             kotak('Usulan dilengkapi dengan foto Kartu Keluarga', 100, 300)]
+        self.assertTrue(urai_halaman(k).get('bukanKK'))
 
     def test_bukan_kk(self):
         k = [kotak('DAFTAR USULAN PBI JKN', 100, 40), kotak('3579010101800001', 100, 100), kotak('UJI', 400, 100)]

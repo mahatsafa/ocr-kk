@@ -137,6 +137,10 @@ def kelompokkan(jangkar, lain, jarak_baris, nomor_baris=True):
             nilai = [int(k['t'].strip().rstrip('.')) for k in nomor]
             urut_naik = all(b > a for a, b in zip(nilai, nilai[1:]))
             pakai = [(n, k) for n, k in zip(nilai, nomor) if 1 <= n <= len(baris)]
+            # Nomor yang salah baca (mis. "2" terbaca "3") menyimpang ~1 baris dari pergeseran nomor lain: buang.
+            if pakai:
+                geser = median(k['cy'] - baris[n - 1][0]['cy'] for n, k in pakai)
+                pakai = [(n, k) for n, k in pakai if abs(k['cy'] - baris[n - 1][0]['cy'] - geser) < 0.4 * jarak_baris]
             if urut_naik and pakai and all(abs(k['cy'] - baris[n - 1][0]['cy']) < 1.6 * jarak_baris for n, k in pakai):
                 for n, k in pakai:
                     baris[n - 1].append(k)
@@ -150,6 +154,36 @@ def kelompokkan(jangkar, lain, jarak_baris, nomor_baris=True):
         else:
             sisa.append(k)
     return [sorted(r, key=lambda k: k['x0']) for r in baris], sisa
+
+
+def sambung_lanjutan(baris, sisa, jarak_baris, semua):
+    """Isi sel yang panjang turun ke baris kedua di dalam sel yang sama (mis. nama 4 kata): kotaknya sedikit di
+    bawah sel itu, satu kolom, dan tidak sejajar dengan baris anggota mana pun. Kotak seperti itu disambungkan
+    ke sel di atasnya (teksnya ditambahkan di belakang). Mengubah `baris` di tempat."""
+    for b in sorted(sisa, key=lambda k: k['cy']):
+        if not re.search(r'[A-Za-z]{2}', b['t']) or kosong_sel(b['t']):
+            continue
+        # baris anggota sungguhan (yang tidak terjangkar) punya sel lain sejajar; lanjutan sel berdiri sendiri
+        if any(k is not b and abs(k['cy'] - b['cy']) < 0.35 * jarak_baris and not kosong_sel(k['t']) for k in semua):
+            continue
+        calon = []
+        for r in baris:
+            for i, k in enumerate(r):
+                dy = b['cy'] - k['cy']
+                tumpang = min(b['x1'], k['x1']) - max(b['x0'], k['x0'])
+                if 0.4 * jarak_baris < dy < 1.15 * jarak_baris and abs(b['x0'] - k['x0']) < 2 * k['h'] and tumpang > 0:
+                    calon.append((dy, r, i))
+        if not calon:
+            continue
+        _, r, i = min(calon, key=lambda c: c[0])
+        k = r[i]
+        # baris di bawahnya kosong di kolom ini: kotak ini lebih mungkin isi baris bawah yang meleset
+        urut = sorted(baris, key=lambda x: median(y['cy'] for y in x))
+        j = next(n for n, x in enumerate(urut) if x is r)
+        if j + 1 < len(urut) and not any(min(b['x1'], y['x1']) - max(b['x0'], y['x0']) > 0 for y in urut[j + 1]):
+            continue
+        r[i] = {**k, 't': k['t'].rstrip() + ' ' + b['t'].strip(), 's': min(k['s'], b['s']),
+                'x1': max(k['x1'], b['x1']), 'y1': max(k['y1'], b['y1'])}
 
 
 def jarak_antar(ys, cadangan):
@@ -193,12 +227,21 @@ def jenis_sel_t2(t):
         return 'tgl', tg, 0 if tg else 9
     if k in ('WNI', 'WNA') or (len(k) == 3 and K.jarak(k, 'WNI') <= 1 and k != 'WNA') or k in ('WN', 'NI'):
         return 'warga', 'WNA' if k == 'WNA' else 'WNI', 0 if k in ('WNI', 'WNA') else 1
+    # blanko lama menulis kewarganegaraan "INDONESIA"
+    if k == 'INDONESIA' or (len(k) >= 4 and (k.startswith(('INDO', 'INOO', 'INDD')) or K.jarak(k, 'INDONESIA') <= 2)):
+        return 'warga', 'WNI', 0 if k == 'INDONESIA' else 1
+    # potongan "INDONESIA"/"WNI" yang rusak berdiri sendiri: bukan nama, tetapi juga tidak pasti
+    if k in ('AN', 'IN', 'INA', 'INO', 'INON', 'IND', 'INDON'):
+        return 'warga', 'WNI', 2
     v, d = K.baku_kawin(s)
     if v:
         return 'kawin', v, d
     v, d = K.baku_hubungan(s)
     if v:
         return 'hub', v, d
+    # status hubungan pendek yang rusak ("ISTER", "1STRI"): dikenali longgar, selalu ditandai ragu
+    if len(k) <= 7 and re.search(r'STR|ISTE', k) and not re.search(r'[AEIOU]{3}', k):
+        return 'hub', 'Istri', 9
     return 'teks', s, 0
 
 
@@ -206,6 +249,10 @@ def pecah(kotak, jenis_sel):
     """Kotak yang memuat dua sel sekaligus (mis. 'PEREMPUAN BATU', 'BUDI 3579...') dipecah per kata."""
     hasil = []
     for k in kotak:
+        # NIK yang menempel ke sel sebelah tanpa spasi ("3579...0003LAKI-LAKI", "BUDI3579...")
+        t = re.sub(r'(?<=[A-Za-z])(\d{16})(?!\d)', r' \1', re.sub(r'(?<!\d)(\d{16})(?=[A-Za-z])', r'\1 ', k['t']))
+        if t != k['t']:
+            k = {**k, 't': t}
         j = jenis_sel(k['t'])[0]
         kata = k['t'].split()
         if j != 'teks' or len(kata) < 2:
@@ -276,6 +323,29 @@ def baca_longgar(jenis, t):
             if re.search(pola, k):
                 return v
         return ''
+    if jenis == 'kawin':
+        if re.search(r'CER', k):
+            if re.search(r'HID|IDU', k):
+                return 'Cerai Hidup'
+            if re.search(r'MAT|ATI', k):
+                return 'Cerai Mati'
+            return ''
+        if re.match(r'BE[LI1]', k) or re.search(r'BELUM|ELUM', k):
+            return 'Belum Kawin'
+        if re.search(r'TERC|RCAT|CATAT', k):
+            return 'Kawin Belum Tercatat' if re.search(r'BEL', k) else 'Kawin Tercatat'
+        if re.search(r'KAW|AWIN', k):
+            return 'Kawin'
+        return ''
+    if jenis == 'hub':
+        for pola, v in ((r'KEP|EPAL|KELU|LUAR', 'Kepala Keluarga'), (r'STR|ISTR', 'Istri'), (r'SUAM|UAMI', 'Suami'),
+                        (r'^ANA|^AN[AK]', 'Anak'), (r'MENAN|NANTU', 'Menantu'), (r'^CUC', 'Cucu'),
+                        (r'MERT|RTUA', 'Mertua'), (r'ORANG|GTUA', 'Orang Tua'), (r'FAMI|MILI', 'Famili Lain')):
+            if re.search(pola, k):
+                return v
+        return ''
+    if jenis == 'warga':
+        return 'WNI' if re.fullmatch(r'W?N[I1L]?|WN.?|.NI', k) else ''
     if jenis == 'pend':
         from .kamus import PENDIDIKAN, PENDIDIKAN_LAIN, cocok_longgar
         e, _ = cocok_longgar(t, list(PENDIDIKAN) + list(PENDIDIKAN_LAIN), 0.62)
@@ -301,6 +371,9 @@ def urai_baris_t1(baris, kolom=None):
     if no:
         a['_no'] = int(no[0].rstrip('.'))
     kiri = [s[0] for s in sel[:i_nik] if s[1] != 'nomor']
+    # Sisa nomor baris yang salah baca ("J", "3.") di ujung kiri bukan bagian nama.
+    while len(kiri) > 1 and len(re.sub(r'[^A-Za-z0-9]', '', kiri[0]['t'])) <= 2:
+        kiri = kiri[1:]
     nama, sk = gabung_teks(kiri)
     nama = bersih_nama(re.sub(r'^\s*\d{1,2}[.\s]+', '', nama))
     a['namaLengkap'] = nama if nama_wajar(nama) else ''
@@ -358,9 +431,49 @@ def urai_baris_t1(baris, kolom=None):
     return a
 
 
-def urai_baris_t2(baris, pisah=None):
-    """`pisah(kotak)` -> 'ayah' | 'ibu' | None, dari letak judul kolom (lihat pemisah_ortu)."""
-    sel = [(k, *jenis_sel_t2(k['t'])) for k in pecah(baris, jenis_sel_t2) if not kosong_sel(k['t'])]
+def sel_t2(baris):
+    return [(k, *jenis_sel_t2(k['t'])) for k in pecah(baris, jenis_sel_t2) if not kosong_sel(k['t'])]
+
+
+def pelajari_kolom2(semua_sel):
+    """Posisi tengah (x) kolom tabel bawah dari sel yang jenisnya pasti: kawin, tgl, hub, warga, dan
+    'ortu' (teks di kanan kewarganegaraan)."""
+    xs = {}
+    for sel in semua_sel:
+        for k, j, v, d in sel:
+            if j in ('kawin', 'tgl', 'hub', 'warga') and v and d <= 3:
+                xs.setdefault(j, []).append(k['cx'])
+                xs.setdefault(j + '_x0', []).append(k['x0'])  # tepi kiri (tulisan rata kiri)
+        w = next((k for k, j, v, d in sel if j == 'warga' and d <= 1), None)
+        if w:
+            xs.setdefault('ortu', []).extend(k['cx'] for k, j, v, d in sel if j == 'teks' and k['x0'] > w['x1'])
+    return {j: median(v) for j, v in xs.items() if v}
+
+
+def urai_baris_t2(baris, pisah=None, kolom=None):
+    """`pisah(kotak)` -> 'ayah' | 'ibu' | None, dari letak judul kolom (lihat pemisah_ortu).
+    `kolom` = posisi kolom dari pelajari_kolom2: sel rusak di kolom status/kewarganegaraan dibaca longgar
+    (ditandai ragu) dan tidak pernah ikut menjadi nama orang tua."""
+    sel = sel_t2(baris)
+    if kolom and 'warga' in kolom:
+        baru = []
+        x_warga = kolom['warga']
+        for k, j, v, d in sel:
+            # hanya sel di kiri area nama orang tua (batas: tengah antara kolom WNI dan kolom nama)
+            batas = (x_warga + kolom['ortu']) / 2 if 'ortu' in kolom else x_warga + 3 * k['h']
+            if j == 'teks' and k['cx'] < batas:
+                dekat = min((c for c in ('kawin', 'tgl', 'hub', 'warga') if c in kolom),
+                            key=lambda c: abs(kolom[c] - k['cx']))
+                # kolom status perkawinan tidak pernah terbaca bersih: sel teks yang berakhir sebelum tepi kiri
+                # kolom tanggal perkawinan / status hubungan adalah status perkawinan
+                tepi = min((kolom[c + '_x0'] for c in ('tgl', 'hub') if c + '_x0' in kolom), default=None)
+                if 'kawin' not in kolom and tepi is not None and k['x1'] < tepi:
+                    dekat = 'kawin'
+                if dekat in ('kawin', 'hub', 'warga'):
+                    v2 = baca_longgar(dekat, k['t'])
+                    j, v, d = (dekat, v2, 9) if v2 else ('rusak', '', 9)
+            baru.append((k, j, v, d))
+        sel = baru
     a, skor = {}, {}
     x_warga = next((s[0]['x0'] for s in sel if s[1] == 'warga'), 1e9)
     for jenis, kolom in (('kawin', 'statusPerkawinan'), ('hub', 'statusHubungan'), ('warga', 'kewarganegaraan'),
@@ -368,8 +481,9 @@ def urai_baris_t2(baris, pisah=None):
         cocok = [s for s in sel if s[1] == jenis and (jenis == 'warga' or s[0]['x1'] <= x_warga + 5)]
         if cocok:
             s = cocok[0]
-            a[kolom] = s[2]
-            skor[kolom] = s[0]['s'] if s[3] <= 0 else min(s[0]['s'], 0.9)
+            if s[2]:
+                a[kolom] = s[2]
+                skor[kolom] = s[0]['s'] if s[3] <= 0 else min(s[0]['s'], 0.8 if s[3] > 2 else 0.9)
 
     # Nama orang tua = teks bebas di kanan kolom kewarganegaraan (atau status hubungan).
     # Batasnya sel kewarganegaraan bila ada; semua sel di kanannya dianggap nama (nama orang tua bisa saja
@@ -379,7 +493,10 @@ def urai_baris_t2(baris, pisah=None):
         batas = warga[0][0]['x1']
         teks = [s[0] for s in sel if s[0]['x0'] >= batas - 5 and s[1] in ('teks', 'hub', 'kawin')]
     else:
-        batas = max((s[0]['x1'] for s in sel if s[1] in ('hub', 'kawin', 'tgl')), default=None)
+        # tanpa kewarganegaraan: batas = sel status hubungan PERTAMA dari kiri (nama orang tua di kanannya bisa
+        # saja memuat kata seperti ISTRI/ANAK)
+        hub = [s[0]['x1'] for s in sel if s[1] == 'hub']
+        batas = hub[0] if hub else max((s[0]['x1'] for s in sel if s[1] in ('kawin', 'tgl')), default=None)
         teks = [s[0] for s in sel if s[1] == 'teks' and (batas is None or s[0]['x0'] >= batas - 5)]
     teks = [k for k in teks if nama_wajar(bersih_nama(k['t'])) and not re.search(r'\d{4}', k['t'])]
     ayah, ibu = [], []
@@ -437,14 +554,15 @@ def pemisah_ortu(ks, y_kepala2, tinggi):
 # ---------- kepala dokumen ----------
 
 LABEL = [
-    ('kepalaKeluarga', r'NAMA\s*KEPALA\s*KELUARGA'),
-    ('alamat', r'ALAMAT'),
-    ('rtrw', r'RT\s*/?\s*RW'),
-    ('kodePos', r'KODE\s*POS'),
-    ('desa', r'DESA\s*/?\s*KELURAHAN'),
-    ('kecamatan', r'KECAMATAN'),
-    ('kabupaten', r'KABUPATEN\s*/?\s*KOTA'),
-    ('provinsi', r'PROVINSI'),
+    # toleran terhadap salah baca 1-2 huruf (mis. "Nama Kepaia Keluarga", "Alamal")
+    ('kepalaKeluarga', r'NAMA\s*KE\S{2,4}\s*KEL\S{3,6}'),
+    ('alamat', r'A[LI1]AMA[TL7I]'),
+    ('rtrw', r'RT\s*[/I1l|]?\s*RW'),
+    ('kodePos', r'K[O0]DE\s*P[O0]S'),
+    ('desa', r'DESA\s*[/I1l|]?\s*KEL\S{4,8}'),
+    ('kecamatan', r'KECAMA\S{1,3}'),
+    ('kabupaten', r'KABUPA\S{2,4}\s*[/I1l|]?\s*K[O0]TA'),
+    ('provinsi', r'PR[O0]VIN\S{1,2}'),
 ]
 
 
@@ -504,7 +622,7 @@ def urai_kepala(kotak, y_batas):
 
 
 JUDUL_LAIN = ('KEWARGA', 'NEGARAAN', 'DOKUMEN', 'IMIGRAS', 'PASPOR', 'KITAP', 'KITAS', 'ORANGTUA', 'PERKAWINAN',
-              'HUBUNGAN', 'DALAMKELUARGA', 'INDONESIA', 'REPUBLIK', 'PERCERAIAN')
+              'HUBUNGAN', 'DALAMKELUARGA', 'REPUBLIK', 'PERCERAIAN')
 
 
 def kata_judul(t):
@@ -553,10 +671,91 @@ def pasangkan(anggota, bagian2):
                 a.setdefault(kk, v)
 
 
+def samakan_nama(anggota, kep):
+    """Satu nama sering tercetak beberapa kali di KK (nama kepala di bagian atas & di tabel; nama ayah/ibu anak =
+    nama lengkap orang tuanya di tabel). Tulisan yang hampir sama (beda 1-2 huruf/spasi) adalah orang yang sama:
+    semuanya diganti bacaan dengan keyakinan tertinggi. Bila dua bacaan atau lebih tepat sama, nama itu
+    terkonfirmasi dan tidak ditandai ragu. Tidak ada nama baru yang dibuat."""
+    isian = []  # (wadah, kolom, kunci skor)
+    for a in anggota:
+        for k in ('namaLengkap', 'namaAyah', 'namaIbu'):
+            if a.get(k):
+                isian.append((a, k))
+    if kep.get('kepalaKeluarga'):
+        isian.append((kep, 'kepalaKeluarga'))
+
+    def teks(w, k):
+        return bersih_nama(w[k]) if k == 'kepalaKeluarga' else w[k]
+
+    def skor(w, k):
+        return w.get('_skor_kepalaKeluarga', 0) if k == 'kepalaKeluarga' else w['_skor'].get(k, 0)
+
+    kunci_ = [K.kunci(teks(w, k)) for w, k in isian]
+    induk = list(range(len(isian)))
+
+    def akar(i):
+        while induk[i] != i:
+            i = induk[i]
+        return i
+
+    for i in range(len(isian)):
+        for j in range(i + 1, len(isian)):
+            a, b = kunci_[i], kunci_[j]
+            if len(a) < 6 or len(b) < 6:
+                continue
+            batas = 0 if min(len(a), len(b)) < 8 else 1 if min(len(a), len(b)) < 14 else 2
+            if a == b or (a[0] == b[0] and K.jarak(a, b) <= batas):
+                induk[akar(j)] = akar(i)
+    kelompok = {}
+    for i in range(len(isian)):
+        kelompok.setdefault(akar(i), []).append(i)
+    for anggota_kel in kelompok.values():
+        if len(anggota_kel) < 2:
+            continue
+        hitung = {}
+        for i in anggota_kel:
+            hitung[kunci_[i]] = hitung.get(kunci_[i], 0) + 1
+        # pilih: paling banyak bacaan yang sama, lalu skor tertinggi, lalu versi yang punya spasi
+        terbaik = max(anggota_kel, key=lambda i: (hitung[kunci_[i]], skor(*isian[i]), teks(*isian[i]).count(' ')))
+        nama = teks(*isian[terbaik])
+        terkonfirmasi = hitung[kunci_[terbaik]] >= 2
+        s_baru = max(skor(*isian[i]) for i in anggota_kel if kunci_[i] == kunci_[terbaik])
+        if terkonfirmasi:
+            s_baru = max(s_baru, 0.99)
+        for i in anggota_kel:
+            w, k = isian[i]
+            if k == 'kepalaKeluarga':
+                w[k] = nama
+                w['_skor_kepalaKeluarga'] = s_baru
+                continue
+            w[k] = nama
+            w['_skor'][k] = s_baru
+            if s_baru >= yakin(k):
+                w['_ragu'].discard(k)
+            else:
+                w['_ragu'].add(k)
+
+
 # ---------- halaman utuh ----------
 
+def pisah_nik(ks):
+    """NIK yang terbaca menempel dengan sel sebelahnya dalam satu kotak tanpa spasi ("3579...0003LAKI-LAKI",
+    "BUDI SANTOSO3579...") dipecah menjadi dua kotak; lebar dibagi menurut jumlah huruf."""
+    hasil = []
+    for k in ks:
+        m = re.fullmatch(r'\s*(\d{16})\s*([A-Za-z].*)', k['t']) or re.fullmatch(r'(.*[A-Za-z])\s*(\d{16})\s*', k['t'])
+        if not m:
+            hasil.append(k)
+            continue
+        a, b = m.group(1).strip(), m.group(2).strip()
+        xm = k['x0'] + (k['x1'] - k['x0']) * len(a) / max(1, len(a) + len(b))
+        hasil.append({**k, 't': a, 'x1': xm, 'cx': (k['x0'] + xm) / 2})
+        hasil.append({**k, 't': b, 'x0': xm, 'cx': (xm + k['x1']) / 2})
+    return hasil
+
+
 def urai_halaman(kotak):
-    ks = luruskan(kotak)
+    ks = pisah_nik(luruskan(kotak))
     if not ks:
         return None
     tinggi = median(k['h'] for k in ks)
@@ -566,7 +765,11 @@ def urai_halaman(kotak):
     kunci_semua = ' '.join(kunci(k['t']) for k in ks)
     ciri = sum(c in kunci_semua for c in ('KARTUKELUARGA', 'NAMALENGKAP', 'JENISKELAMIN', 'TEMPATLAHIR',
                                            'STATUSHUBUNGAN', 'KEWARGANEGARAAN', 'NAMAORANGTUA', 'PENDIDIKAN'))
-    if ciri < 3 and 'KARTUKELUARGA' not in kunci_semua:
+    # "KARTU KELUARGA" sebagai judul (huruf besar, kotak sendiri); kalimat "...foto Kartu Keluarga" di formulir lain
+    # tidak dihitung.
+    judul_kk = any(kunci(k['t']) in ('KARTUKELUARGA', 'KARTUKELUARCA', 'KARTUKELUAROA') and k['h'] > 1.5 * median(x['h'] for x in ks)
+                   for k in ks)
+    if ciri < 3 and not judul_kk:
         return {'kepala': {}, 'anggota': [], 'barisTerlihat': 0, 'bukanKK': True}
 
     kepala1 = [k for k in ks if adalah_kepala(k, KEPALA_T1)]
@@ -604,7 +807,8 @@ def urai_halaman(kotak):
     if nik:
         y_bawah1 = y_kepala2 if y_kepala2 is not None else max(k['cy'] for k in nik) + jarak1
         isi1 = [k for k in ks if y_atas < k['cy'] < y_bawah1 and k not in nik and not adalah_kepala(k, KEPALA_T1)]
-        baris1, _ = kelompokkan(nik, isi1, jarak1)
+        baris1, sisa1 = kelompokkan(nik, isi1, jarak1)
+        sambung_lanjutan(baris1, sisa1, jarak1, isi1)
         kolom = pelajari_kolom([sel_t1(b) for b in baris1])
         for b in baris1:
             a = urai_baris_t1(b, kolom)
@@ -627,13 +831,15 @@ def urai_halaman(kotak):
         if nomor2:
             # Nomor baris 1..n di kolom kiri tabel bawah terbaca lengkap: jadi jangkar pasti.
             jarak2 = jarak_antar([k['cy'] for k in nomor2], jarak1)
-            baris2, _ = kelompokkan(nomor2, [k for k in isi2 if k not in nomor2], jarak2, nomor_baris=False)
+            baris2, sisa2 = kelompokkan(nomor2, [k for k in isi2 if k not in nomor2], jarak2, nomor_baris=False)
+            sambung_lanjutan(baris2, sisa2, jarak2, isi2)
             pisah = pemisah_ortu(ks, y_kepala2, tinggi)
+            kolom2 = pelajari_kolom2([sel_t2([k for k in b if k not in nomor2]) for b in baris2])
             bagian2 = []
             for b in baris2:
                 no = int(b[0]['t'].strip().rstrip('.')) if b[0] in nomor2 else None
                 b = [k for k in b if k not in nomor2]
-                bagian2.append({**urai_baris_t2(b, pisah), '_no': no})
+                bagian2.append({**urai_baris_t2(b, pisah, kolom2), '_no': no})
             pasangkan(anggota, bagian2)
         elif kelas:
             # Jangkar = kolom berjenis yang paling banyak terbaca; sel berjenis dari kolom lain yang tidak
@@ -650,12 +856,15 @@ def urai_halaman(kotak):
                 for k in sorted(sisa, key=lambda k: k['cy']):
                     if all(abs(k['cy'] - j['cy']) > 0.6 * jarak2 for j in jangkar if abs(j['cx'] - k['cx']) < 3 * jarak2):
                         jangkar.append(k)
-            baris2, _ = kelompokkan(jangkar, [k for k in isi2 if k not in jangkar], jarak2)
+            baris2, sisa2 = kelompokkan(jangkar, [k for k in isi2 if k not in jangkar], jarak2)
+            sambung_lanjutan(baris2, sisa2, jarak2, isi2)
             baris2.sort(key=lambda b: median(k['cy'] for k in b))
             pisah = pemisah_ortu(ks, y_kepala2, tinggi)
             # Kolom nama ditulis rata kiri: batas kolom ayah|ibu ~ tengah judul "Ayah" dan "Ibu"
-            bagian2 = [urai_baris_t2(b, pisah) for b in baris2]
+            kolom2 = pelajari_kolom2([sel_t2(b) for b in baris2])
+            bagian2 = [urai_baris_t2(b, pisah, kolom2) for b in baris2]
             bagian2 = [b for b in bagian2 if len([k for k in b if not k.startswith('_')]) >= 2]
             pasangkan(anggota, bagian2)
 
+    samakan_nama(anggota, kep)
     return {'kepala': kep, 'anggota': anggota, 'barisTerlihat': len(nik)}

@@ -85,7 +85,8 @@ def cocok(teks: str, daftar, batas_rasio=0.22) -> tuple[str, int]:
 def judul(t: str) -> str:
     t = str(t or '').lower()
     t = re.sub(r'(^|[\s/(])([a-z])', lambda m: m.group(1) + m.group(2).upper(), t)
-    return re.sub(r'\(([a-z]+)\)', lambda m: '(' + m.group(1).upper() + ')', t)
+    # singkatan dalam kurung tetap huruf besar: (PNS), (TNI), (POLRI)
+    return re.sub(r'\(([a-z]+)\)', lambda m: '(' + m.group(1).upper() + ')', t, flags=re.I)
 
 
 def baku_pendidikan(t):

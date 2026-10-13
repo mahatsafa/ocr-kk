@@ -7,6 +7,12 @@ Mesin baca (OCR) Kartu Keluarga untuk **SIP MENTARI**. Menggantikan pembacaan Te
   setelah model terunduh). Detektor `small`, pengenal `medium` (paling tepat pada uji banding).
 - Tata letak: halaman ditegakkan (0/90/180/270°) dari letak kata judul & kaki KK, kemiringan diluruskan,
   lalu tabel dibaca per baris anggota dengan NIK sebagai jangkar (lihat `ocr_kk/urai.py`).
+- Bacaan kedua (kotak deteksi lebih lebar) hanya bila ada tanggal lahir yang tidak cocok NIK atau kolom berkamus
+  kosong/ragu: tanggal dipakai hanya bila tepat sama dengan tanggal di NIK; kolom berkamus hanya bila yakin.
+- Nama yang tercetak beberapa kali di satu KK (kepala di atas & di tabel; ayah/ibu anak = nama orang tuanya)
+  disamakan ke bacaan terbaik; nama yang turun ke baris kedua sel disambung; NIK yang menempel ke sel sebelah dipecah.
+- Blanko lama ("INDONESIA" sebagai kewarganegaraan), nomor baris salah baca, label salah baca 1-2 huruf,
+  foto KK kecil (diperbesar), foto terbalik 180° (dicoba ulang) ditangani.
 - Keluaran: JSON `{teks, hasil, derajat, halaman, sumber}`; `hasil` berformat sama dengan
   `parseTeksKK` di web (noKK, kepalaKeluarga, alamat, rt, rw, anggota[...]), ditambah `_ragu` per anggota
   untuk kolom yang keyakinan OCR-nya rendah. **Tidak ada nilai yang dikarang**: tidak terbaca = kosong.

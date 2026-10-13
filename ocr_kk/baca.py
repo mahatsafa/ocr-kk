@@ -39,6 +39,59 @@ def perbesar(img, kotak, sisi=2000):
     return np.asarray(potong)
 
 
+def tanggal_nik(nik: str) -> tuple:
+    """(hari, bulan, 2 digit tahun) dari NIK, atau None. NIK = wilayah(6) + DD(+40 perempuan) MM YY + urut(4)."""
+    if not (isinstance(nik, str) and len(nik) == 16 and nik.isdigit()):
+        return None
+    d, m, y = int(nik[6:8]), int(nik[8:10]), int(nik[10:12])
+    d = d - 40 if d > 40 else d
+    return (d, m, y) if 1 <= d <= 31 and 1 <= m <= 12 else None
+
+
+def cocok_nik(a: dict) -> bool:
+    t, n = a.get('tanggalLahir') or '', tanggal_nik(a.get('nik'))
+    return bool(n and len(t) == 10 and (int(t[8:]), int(t[5:7]), int(t[:4]) % 100) == n)
+
+
+# Kolom berkamus yang boleh diisi dari bacaan kedua bila kosong/ragu di bacaan pertama.
+KAMUS_ISI = ('statusPerkawinan', 'statusHubungan', 'agama', 'pendidikanTerakhir', 'pekerjaan')
+
+
+def perbaiki_bacaan(r: dict, img) -> int:
+    """Bacaan kedua dengan kotak deteksi lebih lebar (angka/huruf di tepi kotak tidak terpotong), hanya bila
+    ada tanggal lahir yang tidak cocok NIK atau kolom berkamus yang kosong/ragu. Isi bacaan kedua dipakai:
+      - tanggal lahir: HANYA bila tepat sama dengan tanggal di NIK (dua sumber tercetak yang sepakat);
+      - kolom berkamus: HANYA bila bacaan kedua yakin (tidak ragu) sedangkan bacaan pertama kosong/ragu.
+    Tidak ada yang dikarang: semuanya hasil membaca kertas. Mengembalikan jumlah kolom yang diperbaiki."""
+    from .urai import YAKIN_KOLOM, urai_halaman
+
+    def perlu(a):
+        return ((tanggal_nik(a.get('nik')) and not cocok_nik(a))
+                or any(not a.get(k) or k in a['_ragu'] for k in KAMUS_ISI))
+
+    if not any(perlu(a) for a in r['anggota']):
+        return 0
+    r2 = urai_halaman(baca_kotak(img, lebar=True)) or {'anggota': []}
+    per_nik = {b['nik']: b for b in r2['anggota']}
+    n = 0
+    for a in r['anggota']:
+        b = per_nik.get(a['nik'])
+        if not b:
+            continue
+        if tanggal_nik(a.get('nik')) and not cocok_nik(a) and cocok_nik(b):
+            a['tanggalLahir'] = b['tanggalLahir']
+            a['_skor']['tanggalLahir'] = max(b['_skor'].get('tanggalLahir', 0), YAKIN_KOLOM['tanggalLahir'])
+            a['_ragu'].discard('tanggalLahir')
+            n += 1
+        for k in KAMUS_ISI:
+            if (not a.get(k) or k in a['_ragu']) and b.get(k) and k not in b['_ragu']:
+                a[k] = b[k]
+                a['_skor'][k] = b['_skor'].get(k, 1)
+                a['_ragu'].discard(k)
+                n += 1
+    return n
+
+
 def baca_file(data: bytes) -> dict:
     """{teks, hasil, derajat, sumber}. `hasil` berformat sama dengan parseTeksKK di web."""
     from .hasil import susun
@@ -48,13 +101,23 @@ def baca_file(data: bytes) -> dict:
     for i, img in enumerate(muat(data)):
         kotak, derajat, tegak = baca_halaman(img)
         r = urai_halaman(kotak) or {'kepala': {}, 'anggota': [], 'barisTerlihat': 0}
+        dipakai = tegak
+        if not r['anggota'] and not r.get('bukanKK'):
+            # tebakan putaran bisa salah pada foto pudar: coba juga diputar 180°
+            balik = putar_gambar(tegak, 180)
+            kotak3 = baca_kotak(balik)
+            r3 = urai_halaman(kotak3)
+            if r3 and len(r3['anggota']) > len(r['anggota']):
+                kotak, r, dipakai, tegak, derajat = kotak3, r3, balik, balik, (derajat + 180) % 360
         if not r['anggota'] and not r.get('bukanKK'):
             besar = perbesar(tegak, kotak)
             if besar is not None:
                 kotak2 = baca_kotak(besar)
                 r2 = urai_halaman(kotak2)
                 if r2 and len(r2['anggota']) > len(r['anggota']):
-                    kotak, r = kotak2, r2
+                    kotak, r, dipakai = kotak2, r2, besar
+        if r['anggota']:
+            perbaiki_bacaan(r, dipakai)
         nilai = (not r.get('bukanKK'), len(r['anggota']), bool(r['kepala'].get('noKK')))
         if terbaik is None or nilai > terbaik[0]:
             terbaik = (nilai, i, kotak, derajat, r)
