@@ -1,5 +1,6 @@
 """Menyusun hasil urai menjadi format `hasil` yang dipakai web SIP MENTARI (sama dengan parseTeksKK)."""
 import re
+from datetime import date
 
 from .urai import BUANG
 
@@ -18,7 +19,27 @@ def _alamat(t):
     return t.upper() if len(re.sub(r'[^A-Za-z]', '', t)) >= 3 else ''
 
 
-def susun(r):
+WAJIB = ['namaLengkap', 'nik', 'jenisKelamin', 'tempatLahir', 'tanggalLahir', 'agama', 'pendidikanTerakhir',
+         'pekerjaan', 'statusPerkawinan', 'statusHubungan', 'namaAyah', 'namaIbu']
+
+
+def dari_nik(nik, tahun_ini=None):
+    """(tanggal lahir 'YYYY-MM-DD', jenis kelamin 'L'/'P') dari NIK sah, atau None.
+    NIK = wilayah(6) + DD(+40 perempuan) MM YY + urut(4). Abad: 20xx bila belum lewat tahun ini, selain itu 19xx."""
+    if not (isinstance(nik, str) and len(nik) == 16 and nik.isdigit()):
+        return None
+    d, m, yy = int(nik[6:8]), int(nik[8:10]), int(nik[10:12])
+    jk = 'P' if d > 40 else 'L'
+    d = d - 40 if d > 40 else d
+    tahun_ini = tahun_ini or date.today().year
+    y = 2000 + yy if 2000 + yy <= tahun_ini else 1900 + yy
+    try:
+        return date(y, m, d).isoformat(), jk
+    except ValueError:
+        return None
+
+
+def susun(r, tahun_ini=None):
     """r = keluaran urai_halaman."""
     kep = r['kepala']
     anggota = []
@@ -32,6 +53,19 @@ def susun(r):
                 ragu.add(k)
         if not b['kewarganegaraan']:
             b['kewarganegaraan'] = 'WNI'
+        # Tanggal lahir & jenis kelamin tercetak juga di NIK. Tanggal yang kosong/tidak sepakat dengan NIK diisi
+        # dari NIK dan SELALU ditandai ragu (manusia mencocokkan foto). Tanggal yang sepakat (hari, bulan, 2 digit
+        # tahun) dibiarkan, supaya abad yang tercetak tidak ditimpa tebakan.
+        n = dari_nik(b['nik'], tahun_ini)
+        if n:
+            t = b['tanggalLahir']
+            if not (len(t) == 10 and t[5:] == n[0][5:] and t[2:4] == n[0][2:4]):
+                b['tanggalLahir'] = n[0]
+                ragu.add('tanggalLahir')
+            if not b['jenisKelamin']:
+                b['jenisKelamin'] = n[1]
+        # Kolom wajib yang kosong selalu ditandai, supaya terlihat di form.
+        ragu |= {k for k in WAJIB if not b[k]}
         b['_ragu'] = sorted(ragu)
         anggota.append(b)
     rt, rw = _rt_rw(kep.get('rtrw', ''))

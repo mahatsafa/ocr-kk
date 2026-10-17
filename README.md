@@ -18,6 +18,12 @@ Mesin baca (OCR) Kartu Keluarga untuk **SIP MENTARI**. Menggantikan pembacaan Te
 - Keluaran: JSON `{teks, hasil, derajat, halaman, sumber}`; `hasil` berformat sama dengan
   `parseTeksKK` di web (noKK, kepalaKeluarga, alamat, rt, rw, anggota[...]), ditambah `_ragu` per anggota
   untuk kolom yang keyakinan OCR-nya rendah. **Tidak ada nilai yang dikarang**: tidak terbaca = kosong.
+  Pengecualian: tanggal lahir & jenis kelamin juga tercetak di NIK. Tanggal lahir yang kosong atau tidak sepakat
+  dengan NIK diisi dari NIK dan **selalu** masuk `_ragu`; tanggal yang sepakat (hari, bulan, 2 digit tahun) tidak
+  diubah supaya abad yang tercetak tetap dipakai. Jenis kelamin kosong diisi dari NIK (sama dengan web).
+  Kolom wajib yang kosong selalu masuk `_ragu`. Uji 100 KK berkunci (2026-10-17): tanggal lahir 90% -> 100%,
+  jenis kelamin 94% -> 100%, kolom lain tidak berubah; pada 18 konflik tanggal vs NIK, tidak sekali pun
+  tanggal OCR benar sementara NIK salah.
 
 ## Pasang
 

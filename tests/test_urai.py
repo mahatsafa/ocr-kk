@@ -160,5 +160,66 @@ class TesHalaman(unittest.TestCase):
         self.assertEqual(tebak_putaran(terbalik, 2200, 1100), 180)
 
 
+class TesSusunNik(unittest.TestCase):
+    """Tanggal lahir & jenis kelamin dari NIK (NIK rekaan)."""
+
+    def r(self, **a):
+        dasar = {'nik': '3579014202850002', 'namaLengkap': 'UJI', '_skor': {}, '_ragu': set()}
+        return {'kepala': {}, 'anggota': [{**dasar, **a}], 'barisTerlihat': 1}
+
+    def test_dari_nik(self):
+        from ocr_kk.hasil import dari_nik
+        self.assertEqual(dari_nik('3579014202850002', 2026), ('1985-02-02', 'P'))
+        self.assertEqual(dari_nik('3579010303100003', 2026), ('2010-03-03', 'L'))
+        self.assertEqual(dari_nik('3579010101300001', 2026), ('1930-01-01', 'L'))  # 2030 belum terjadi
+        self.assertIsNone(dari_nik('3579013202850002', 2026))  # tanggal 32 tidak sah
+        self.assertIsNone(dari_nik('35790142028500', 2026))
+        self.assertIsNone(dari_nik('', 2026))
+
+    def test_tanggal_kosong_diisi_dari_nik_dan_ditandai(self):
+        a = susun(self.r(tanggalLahir=''), 2026)['anggota'][0]
+        self.assertEqual(a['tanggalLahir'], '1985-02-02')
+        self.assertIn('tanggalLahir', a['_ragu'])
+
+    def test_tanggal_bertentangan_diganti_nik_dan_ditandai(self):
+        a = susun(self.r(tanggalLahir='1985-08-02'), 2026)['anggota'][0]
+        self.assertEqual(a['tanggalLahir'], '1985-02-02')
+        self.assertIn('tanggalLahir', a['_ragu'])
+
+    def test_tanggal_sepakat_tidak_diubah_termasuk_abad(self):
+        a = susun(self.r(tanggalLahir='1985-02-02'), 2026)['anggota'][0]
+        self.assertEqual(a['tanggalLahir'], '1985-02-02')
+        self.assertNotIn('tanggalLahir', a['_ragu'])
+        # tercetak 1910, NIK yy=10 -> tebakan 2010; yang tercetak dipakai
+        b = susun(self.r(nik='3579010303100003', tanggalLahir='1910-03-03'), 2026)['anggota'][0]
+        self.assertEqual(b['tanggalLahir'], '1910-03-03')
+
+    def test_jenis_kelamin_kosong_dari_nik(self):
+        a = susun(self.r(jenisKelamin=''), 2026)['anggota'][0]
+        self.assertEqual(a['jenisKelamin'], 'P')
+
+    def test_nik_tidak_sah_tidak_mengisi(self):
+        a = susun(self.r(nik='12345', tanggalLahir=''), 2026)['anggota'][0]
+        self.assertEqual(a['tanggalLahir'], '')
+        self.assertIn('tanggalLahir', a['_ragu'])
+
+    def test_kolom_wajib_kosong_ditandai(self):
+        a = susun(self.r(statusPerkawinan='', namaIbu=''), 2026)['anggota'][0]
+        self.assertIn('statusPerkawinan', a['_ragu'])
+        self.assertIn('namaIbu', a['_ragu'])
+        self.assertNotIn('namaLengkap', a['_ragu'])
+
+
+class TesKawinLonggar(unittest.TestCase):
+    def test_pola(self):
+        from ocr_kk.urai import baca_longgar
+        self.assertEqual(baca_longgar('kawin', 'KAVMN'), 'Kawin')
+        self.assertEqual(baca_longgar('kawin', 'KAWN'), 'Kawin')
+        self.assertEqual(baca_longgar('kawin', 'KAMNERCAA'), 'Kawin Tercatat')
+        # ambigu: dibiarkan kosong
+        for t in ('BEWAN', 'IXAWEN', 'CERN ALAT'):
+            self.assertEqual(baca_longgar('kawin', t), '')
+
+
 if __name__ == '__main__':
     unittest.main()

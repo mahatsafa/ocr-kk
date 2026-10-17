@@ -332,9 +332,10 @@ def baca_longgar(jenis, t):
             return ''
         if re.match(r'BE[LI1]', k) or re.search(r'BELUM|ELUM', k):
             return 'Belum Kawin'
-        if re.search(r'TERC|RCAT|CATAT', k):
+        if re.search(r'TERC|RCAT|CATAT|ERCA', k):
             return 'Kawin Belum Tercatat' if re.search(r'BEL', k) else 'Kawin Tercatat'
-        if re.search(r'KAW|AWIN', k):
+        # 'KAVMN', 'KAWN': W sering terbaca V/VV/M
+        if re.search(r'KAW|AWIN', k) or re.fullmatch(r'KA[VWM]{1,2}[I1]?N', k):
             return 'Kawin'
         return ''
     if jenis == 'hub':
